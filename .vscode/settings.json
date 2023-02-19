@@ -1,0 +1,11 @@
+{
+  "sqltools.connections": [
+    {
+      "previewLimit": 50,
+      "driver": "SQLite",
+      "name": "chat_isearch",
+      "database": "/Users/kevin/chat_isearch.db"
+    }
+  ],
+  "sqltools.useNodeRuntime": true
+}
