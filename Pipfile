@@ -8,6 +8,10 @@ sentence-transformers = "*"
 torch = "*"
 sqlalchemy = "*"
 tqdm = "*"
+twilio = "*"
+pyngrok = "*"
+flask = "*"
+python-dotenv = "*"
 
 [dev-packages]
 ipykernel = "*"

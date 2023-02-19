@@ -1,10 +1,12 @@
 import os
 from dotenv import load_dotenv
-from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
-from query_tool import findMessage
 
 load_dotenv()
+
+from flask import Flask, request
+from twilio.twiml.messaging_response import MessagingResponse
+from isearch.query_tool import findMessage
+
 app = Flask(__name__)
 
 
@@ -13,15 +15,15 @@ def bot():
     body = request.values.get('Body', None)
     user = request.values.get('From', '')
 
-    responseArray = findMessage(user)
+    responseArray = findMessage(body)
 
     resp = MessagingResponse()
-    built_string = ""
 
     for msg in responseArray:
-        built_string += (msg + "\n")
+        if msg:
+            resp.message(msg)
 
-    resp.message(built_string)
+
     return str(resp)
 
 
@@ -33,7 +35,7 @@ def start_ngrok():
     print(' * Tunnel URL:', url)
     client = Client()
     client.incoming_phone_numbers.list(
-        phone_number=os.environ.get('TWILIO_PHONE_NUMBER'))[0].update(
+        phone_number=os.environ["TWILIO_PHONE_NUMBER"])[0].update(
             sms_url=url + '/bot')
 
 
