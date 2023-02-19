@@ -55,6 +55,7 @@ class Message:
 
 def fetch_message_context(message: Message, context_length: int = 5) -> list[Message]:
     msgs = cur.execute("""
+
 select
     message.date AS message_date,
 	message.guid as guid,
@@ -107,7 +108,6 @@ attach database '/Users/kevin/chat.db' as imsg;
 """)
 cur = conn.cursor()
 
-query = "Ones that talk about travel"
 
 model = SentenceTransformer('all-MiniLM-L6-v2')
 query_embedding = model.encode(query, convert_to_tensor=True)
@@ -142,11 +142,16 @@ m_objs = [Message(*row) for row in messages]
 embeds = [torch.from_numpy(np.frombuffer(row[7], dtype=np.float32)) for row in messages]
 embeds = torch.stack(embeds)
 print(embeds.shape)
-# Compute cosine-similarits
-cos_scores = torch.nn.functional.cosine_similarity(query_embedding, embeds)
 
-# Sort the results in decreasing order
-top_indexes = torch.topk(cos_scores, k=5).indices
+def findMessage(msg : string):
+    # Compute cosine-similarits
+    cos_scores = torch.nn.functional.cosine_similarity(query_embedding, embeds)
 
-for idx in top_indexes:
-    print(render_context_window(m_objs[idx], fetch_message_context(m_objs[idx])))
+    # Sort the results in decreasing order
+    top_indexes = torch.topk(cos_scores, k=5).indices
+
+    returned_messages = []
+    for idx in top_indexes:
+        returned_messages.append(render_context_window(m_objs[idx], fetch_message_context(m_objs[idx])))
+
+    return returned_messages
