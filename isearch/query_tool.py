@@ -4,14 +4,8 @@ from dataclasses import dataclass
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 import torch
+import numpy as np
 
-db = sqlite3.connect('/Users/kevin/chat_isearch.db')
-db.execute("""
-attach database '/Users/kevin/chat.db' as imsg;
-""")
-cur = db.cursor()
-# Enable print logging for queries
-# db.set_trace_callback(print)
 
 @dataclass
 class Message:
@@ -23,6 +17,7 @@ class Message:
     is_from_me: bool
     handle_id: str
     display_name: str
+    embeds: bytes = None
 
     def parse_text(self):
         if self.text is not None:
@@ -59,7 +54,7 @@ class Message:
 
 
 def fetch_message_context(message: Message, context_length: int = 5) -> list[Message]:
-    msgs = db.execute("""
+    msgs = cur.execute("""
 select
     message.date AS message_date,
 	message.guid as guid,
@@ -106,73 +101,52 @@ This message:
 """.strip()
 
 
-model = SentenceTransformer("all-MiniLM-L6-v2").to("mps")
-model._target_device = torch.device("mps")
-print("loaded sentence transformer!")
+conn = sqlite3.connect('/Users/kevin/chat_isearch.db')
+conn.execute("""
+attach database '/Users/kevin/chat.db' as imsg;
+""")
+cur = conn.cursor()
 
-BATCH_SIZE = 512
+query = "Ones that talk about travel"
 
-count = db.execute("""
+model = SentenceTransformer('all-MiniLM-L6-v2')
+query_embedding = model.encode(query, convert_to_tensor=True)
+
+# Fetch all embeddings of the given user's chat
+chat_id = 233
+
+messages = cur.execute("""
 select
-    count(*)
-from
-	imsg.chat
-	-- Find chat IDs
-    JOIN chat_message_join ON imsg.chat. "ROWID" = chat_message_join.chat_id
-    JOIN message ON chat_message_join.message_id = message. "ROWID"
-    JOIN handle on message.handle_id = handle.ROWID
-    -- Filter by messages where we haven't calculates message embeddings.
-	full outer join message_embeddings on message_embeddings.guid = message.guid
-where
-	message_embeddings.embed is null
-    and (message.text is not null or message.attributedBody is not null)
-order by
-	message_date desc
-""").fetchone()
+    message.date AS message_date,
+    message.guid as guid,
+    message.text,
+    message.attributedBody,
+    message.is_from_me,
+    handle.id,
+    chat.display_name,
+    message_embeddings.embed
+from message
+	join message_embeddings on message_embeddings.guid = message.guid
+	join chat_message_join on chat_message_join.message_id = message.ROWID
+    join chat on chat.ROWID = chat_message_join.chat_id
+    join handle on handle.ROWID = message.handle_id
+WHERE
+	chat_message_join.chat_id == 233
+	and (message.text is not null or message.attributedBody is not null)
+order BY
+	message.date DESC
+""").fetchall()
 
-# print("Found {} messages to embed.".format(count[0]))
+m_objs = [Message(*row) for row in messages]
 
-with tqdm(total=count[0]) as pbar:
-    while True:
-        messages = db.execute("""
-        select
-            message.date AS message_date,
-            message.guid as guid,
-            message.text,
-            message.attributedBody,
-            message.is_from_me,
-            handle.id,
-            chat.display_name
-        from
-            imsg.chat
-            -- Find chat IDs
-            JOIN chat_message_join ON imsg.chat. "ROWID" = chat_message_join.chat_id
-            JOIN message ON chat_message_join.message_id = message. "ROWID"
-            JOIN handle on message.handle_id = handle.ROWID
-            -- Filter by messages where we haven't calculates message embeddings.
-            full outer join message_embeddings on message_embeddings.guid = message.guid
-        where
-            message_embeddings.embed is null
-            and (message.text is not null or message.attributedBody is not null)
-        order by
-            message_date desc
-        limit ?
-        """, (BATCH_SIZE,)).fetchall()
+embeds = [torch.from_numpy(np.frombuffer(row[7], dtype=np.float32)) for row in messages]
+embeds = torch.stack(embeds)
+print(embeds.shape)
+# Compute cosine-similarits
+cos_scores = torch.nn.functional.cosine_similarity(query_embedding, embeds)
 
-        if len(messages) == 0:
-            break
+# Sort the results in decreasing order
+top_indexes = torch.topk(cos_scores, k=5).indices
 
-        print("Found {} messages to embed.".format(len(messages)))
-        messages = [Message(*m) for m in messages]
-        contexts = [fetch_message_context(m) for m in messages]
-
-        embeds = model.encode([render_context_window(m, c) for m, c in zip(messages, contexts)], show_progress_bar=False, convert_to_tensor=True)
-
-        for msg, embed in zip(messages, embeds):
-            cur.execute("""
-            insert or ignore into message_embeddings (guid, embed, model_ver) values (?,
-            ?, 1)
-            """, (msg.guid, embed.cpu().numpy().tobytes()))
-            db.commit()
-
-        pbar.update(BATCH_SIZE)
+for idx in top_indexes:
+    print(render_context_window(m_objs[idx], fetch_message_context(m_objs[idx])))
