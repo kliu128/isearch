@@ -3,6 +3,7 @@ import sqlite3
 from dataclasses import dataclass
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
+import torch
 
 db = sqlite3.connect('/Users/kevin/chat_isearch.db')
 db.execute("""
@@ -101,6 +102,7 @@ This message:
 
 
 model = SentenceTransformer("all-MiniLM-L6-v2").to("mps")
+model._target_device = torch.device("mps")
 print("loaded sentence transformer!")
 
 BATCH_SIZE = 512
